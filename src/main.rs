@@ -13,7 +13,7 @@ use precomputed::CIRCLE;
 mod precomputed;
 
 struct Percent {
-    n: i8,
+    percent: i8,
 }
 
 impl Percent {
@@ -23,22 +23,11 @@ impl Percent {
         if !(0..=100).contains(&n) {
             return Err("Out of bounds".to_owned());
         }
-        Ok(Self { n })
-    }
-
-    pub fn get_percent(&self) -> i8 {
-        self.n
-    }
-    pub fn set_percent(&mut self, n: i8) -> Result<(), String> {
-        if !(0..=100).contains(&n) {
-            return Err("Out of bounds".to_owned());
-        }
-        self.n = n;
-        Ok(())
+        Ok(Self { percent: n })
     }
 
     pub fn map_to_value(&self, value: usize) -> usize {
-        let x: usize = ((self.n as f64 / 100.0) * (value as f64)) as usize;
+        let x: usize = ((self.percent as f64 / 100.0) * (value as f64)) as usize;
         // clamps it because it could go over the value
         x.clamp(0, value)
     }
