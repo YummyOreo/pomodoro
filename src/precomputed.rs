@@ -1,6 +1,6 @@
 use eframe::epaint::{vec2, Vec2};
 
-pub const CIRCLE_128: [Vec2; 129] = [
+pub const CIRCLE: [Vec2; 129] = [
     vec2(-0.000000, -1.000000),
     vec2(0.049068, -0.998795),
     vec2(0.098017, -0.995185),
