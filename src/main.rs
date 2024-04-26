@@ -322,12 +322,12 @@ impl App {
     fn check_time(&mut self) {
         if let Some(start) = self.phase.get_start() {
             if start.elapsed() > self.phase.get_duration() {
-                self.next();
+                self.next_phase();
             }
         }
     }
 
-    fn play_completed() {
+    fn play_completed_sound() {
         std::thread::spawn(|| {
             let (_stream, stream_handle) = OutputStream::try_default().unwrap();
             let sink = Sink::try_new(&stream_handle).unwrap();
@@ -338,8 +338,8 @@ impl App {
         });
     }
 
-    fn next(&mut self) {
-        Self::play_completed();
+    fn next_phase(&mut self) {
+        Self::play_completed_sound();
         self.phase = match self.phase {
             PomodoroPhase::Work { .. } => PomodoroPhase::new_break(self.break_phase),
             PomodoroPhase::Break { .. } => PomodoroPhase::new_work(self.work_phase),
@@ -349,6 +349,7 @@ impl App {
 }
 
 impl eframe::App for App {
+    // This will get called every time the app updates, or every 5ms, which ever is faster
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.check_time();
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -371,7 +372,7 @@ impl eframe::App for App {
                 ui.label(stats_text);
                 ui.with_layout(Layout::top_down(eframe::emath::Align::Max), |ui| {
                     if ui.button("Skip").clicked() {
-                        self.next();
+                        self.next_phase();
                     }
                 })
             });
@@ -392,6 +393,7 @@ impl eframe::App for App {
                 self.break_phase = Duration::from_secs(btime * 60);
             });
         });
+        // this is what sets the slowest update speed
         ctx.request_repaint_after(Duration::from_millis(5));
     }
 }
