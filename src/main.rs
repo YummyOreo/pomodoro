@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
 use eframe::{
-    egui::{self, Frame, Layout, RichText, ScrollArea, Sense, Slider, ViewportBuilder, Widget},
+    egui::{
+        self, Frame, Layout, Response, RichText, ScrollArea, Sense, Slider, ViewportBuilder, Widget,
+    },
     emath::{lerp, Align2},
     epaint::{
         tessellator::{Path, PathType},
@@ -41,11 +43,11 @@ impl Percent {
 struct ProgressCircle<'a> {
     amount: Percent,
     color: egui::Color32,
-    phase: &'a PomodoroPhase,
+    phase: &'a mut PomodoroPhase,
 }
 
 impl<'a> ProgressCircle<'a> {
-    pub fn new(p: Percent, phase: &'a PomodoroPhase) -> Self {
+    pub fn new(p: Percent, phase: &'a mut PomodoroPhase) -> Self {
         Self {
             amount: p,
             color: phase.to_color(),
@@ -65,26 +67,11 @@ impl<'a> ProgressCircle<'a> {
         path.extend(quadrant_vertices.iter().map(|&n| center + radius * n));
         path
     }
-
-    fn get_points_inverted(&self, center: Pos2, radius: f32) -> Vec<Pos2> {
-        // uses the precomputed values from the egui famework to make a partial circle
-        let mut path = vec![];
-        let mut offset = self
-            .amount
-            // maps the percentage to a value
-            .map_to_value(CIRCLE.len() - 1);
-        if CIRCLE.len() - offset < 2 {
-            offset = 3;
-        }
-        // gets all the points
-        let quadrant_vertices: &[Vec2] = &CIRCLE[offset..CIRCLE.len()];
-        path.extend(quadrant_vertices.iter().map(|&n| center + radius * n));
-        path
-    }
 }
 
 impl<'a> Widget for ProgressCircle<'a> {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let radius = ui.available_width() / 3.5;
         // sets the amount of space the widget takes up
         let (outer, response) = ui.allocate_exact_size(
             Vec2::new(ui.available_width(), ui.available_height() / 1.5),
@@ -92,49 +79,68 @@ impl<'a> Widget for ProgressCircle<'a> {
         );
         // hover effect
         if response.hovered() {
-            let mut path = Path::default();
-            let mut mesh = Mesh::default();
-            path.add_open_points(&self.get_points(outer.center(), ui.available_width() / 3.5));
-            path.stroke(
-                1.0,
-                PathType::Open,
-                Stroke::new(10.5, ui.style().visuals.gray_out(self.color)),
-                &mut mesh,
-            );
-            ui.painter().add(mesh);
-
-            let mut path = Path::default();
-            let mut mesh = Mesh::default();
-            path.add_open_points(
-                &self.get_points_inverted(outer.center(), ui.available_width() / 3.5),
-            );
-            path.stroke(
-                1.0,
-                PathType::Open,
-                Stroke::new(6.5, ui.style().visuals.faint_bg_color),
-                &mut mesh,
-            );
-            ui.painter().add(mesh);
+            if let Some(hover_pos) = response.hover_pos() {
+                let center = outer.center();
+                if ((center.x - hover_pos.x).abs().powf(2.0)
+                    + (center.y - hover_pos.y).abs().powf(2.0))
+                .sqrt()
+                    <= radius + 7.5
+                {
+                    let mut color = ui.style().visuals.gray_out(self.color);
+                    color = color.gamma_multiply(0.5);
+                    ui.painter().circle(
+                        outer.center(),
+                        radius,
+                        color,
+                        Stroke::new(0.0, Color32::TRANSPARENT),
+                    );
+                }
+            }
         }
+
+        // click effect
+        if response.clicked() {
+            if let Some(hover_pos) = response.hover_pos() {
+                let center = outer.center();
+                if ((center.x - hover_pos.x).abs().powf(2.0)
+                    + (center.y - hover_pos.y).abs().powf(2.0))
+                .sqrt()
+                    <= radius + 7.5
+                {
+                    match self.phase.get_start() {
+                        Some(_) => {
+                            self.phase.pause();
+                        }
+                        None => {
+                            self.phase.start();
+                        }
+                    }
+                }
+            }
+        }
+
         // paints the thin circle behind the progress one
         ui.painter().circle_stroke(
             outer.center(),
-            ui.available_width() / 3.5,
+            radius,
             Stroke::new(1.5, ui.style().visuals.weak_text_color()),
         );
 
         let mut path = Path::default();
         // adds the points of the progress circle in the middle with the radius of ''
-        path.add_open_points(&self.get_points(outer.center(), ui.available_width() / 3.5));
+        path.add_open_points(&self.get_points(outer.center(), radius));
         // converts it to a mesh
         let mut mesh = Mesh::default();
         path.stroke(1.0, PathType::Open, Stroke::new(7.5, self.color), &mut mesh);
         // paints it
         ui.painter().add(Shape::Mesh(mesh));
         let time_left = {
-            let seconds_left = self
-                .amount
-                .map_to_value(self.phase.get_duration().as_secs().try_into().unwrap());
+            let seconds_left = self.phase.get_duration().as_secs()
+                - self
+                    .phase
+                    .time_elapsed()
+                    .unwrap_or(Duration::new(0, 0))
+                    .as_secs();
             let mut minutes = (seconds_left / 60).to_string();
             let mut seconds = (seconds_left % 60).to_string();
             if minutes.len() < 2 {
@@ -249,8 +255,8 @@ impl PomodoroPhase {
         }
     }
 
-    pub fn to_precent(&self) -> Option<Percent> {
-        if let Some(time_elapsed) = match self {
+    pub fn time_elapsed(&self) -> Option<Duration> {
+        match self {
             Self::Work { paused, start, .. } | Self::Break { paused, start, .. } => {
                 if let Some(paused_time) = *paused {
                     Some(paused_time)
@@ -258,7 +264,11 @@ impl PomodoroPhase {
                     start.map(|start_time| start_time.elapsed())
                 }
             }
-        } {
+        }
+    }
+
+    pub fn to_precent(&self) -> Option<Percent> {
+        if let Some(time_elapsed) = self.time_elapsed() {
             return Some(
                 Percent::new(
                     100 - ((time_elapsed.as_secs() as f64 / self.get_duration().as_secs() as f64)
@@ -350,18 +360,14 @@ impl eframe::App for App {
                 .phase
                 .to_precent()
                 .unwrap_or(Percent::new(100).expect("Should be valid"));
-            if ui.add(ProgressCircle::new(percent, &self.phase)).clicked() {
-                match self.phase.get_start() {
-                    Some(_) => {
-                        self.phase.pause();
-                    }
-                    None => {
-                        self.phase.start();
-                    }
-                }
-            };
+            ui.add(ProgressCircle::new(percent, &mut self.phase));
             ui.horizontal(|ui| {
-                let stats_text = format!("{}/{}:{}", self.stats.get_phase_count().0, self.stats.get_phase_count().1, self.stats.get_count());
+                let stats_text = format!(
+                    "{}/{}:{}",
+                    self.stats.get_phase_count().0,
+                    self.stats.get_phase_count().1,
+                    self.stats.get_count()
+                );
                 ui.label(stats_text);
                 ui.with_layout(Layout::top_down(eframe::emath::Align::Max), |ui| {
                     if ui.button("Skip").clicked() {
