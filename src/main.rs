@@ -9,12 +9,17 @@ use eframe::{
     },
     WindowBuilder,
 };
+
+use rodio::{source::Source, Decoder, OutputStream, Sink};
+
 use precomputed::CIRCLE;
 mod precomputed;
 
 struct Percent {
     percent: i8,
 }
+
+const RAW_AUDIO: &[u8; 368684] = include_bytes!("./assets/completed.wav");
 
 impl Percent {
     pub fn new(n: i8) -> Result<Self, String> {
@@ -267,10 +272,27 @@ impl PomodoroPhase {
     }
 }
 
+#[derive(Default)]
+struct Stats(pub usize);
+
+impl Stats {
+    pub fn increment(&mut self) {
+        self.0 += 1;
+    }
+
+    pub fn get_phase_count(&self) -> (i8, i8) {
+        ((self.0 % 2 + 1) as i8, 2)
+    }
+    pub fn get_count(&self) -> usize {
+        self.0 / 2
+    }
+}
+
 struct App {
     work_phase: Duration,
     break_phase: Duration,
     phase: PomodoroPhase,
+    stats: Stats,
 }
 
 impl App {
@@ -280,9 +302,10 @@ impl App {
         // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
         // for e.g. egui::PaintCallback.
         App {
-            work_phase: Duration::from_secs(60),
-            break_phase: Duration::from_secs(60),
-            phase: PomodoroPhase::new_work(Duration::from_secs(60)),
+            work_phase: Duration::from_secs(30 * 60),
+            break_phase: Duration::from_secs(15 * 60),
+            phase: PomodoroPhase::new_work(Duration::from_secs(30 * 60)),
+            stats: Stats::default(),
         }
     }
 
@@ -294,11 +317,24 @@ impl App {
         }
     }
 
+    fn play_completed() {
+        std::thread::spawn(|| {
+            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+            let sink = Sink::try_new(&stream_handle).unwrap();
+            let my_slice = std::io::Cursor::new(RAW_AUDIO);
+            let source = Decoder::new(my_slice).unwrap();
+            sink.append(source);
+            sink.sleep_until_end();
+        });
+    }
+
     fn next(&mut self) {
+        Self::play_completed();
         self.phase = match self.phase {
             PomodoroPhase::Work { .. } => PomodoroPhase::new_break(self.break_phase),
             PomodoroPhase::Break { .. } => PomodoroPhase::new_work(self.work_phase),
         };
+        self.stats.increment();
     }
 }
 
@@ -325,7 +361,8 @@ impl eframe::App for App {
                 }
             };
             ui.horizontal(|ui| {
-                ui.label("1/2:0");
+                let stats_text = format!("{}/{}:{}", self.stats.get_phase_count().0, self.stats.get_phase_count().1, self.stats.get_count());
+                ui.label(stats_text);
                 ui.with_layout(Layout::top_down(eframe::emath::Align::Max), |ui| {
                     if ui.button("Skip").clicked() {
                         self.next();
@@ -349,7 +386,7 @@ impl eframe::App for App {
                 self.break_phase = Duration::from_secs(btime * 60);
             });
         });
-        ctx.request_repaint_after(Duration::from_millis(50));
+        ctx.request_repaint_after(Duration::from_millis(5));
     }
 }
 
