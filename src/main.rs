@@ -3,26 +3,31 @@ use std::time::{Duration, Instant};
 
 use eframe::{
     egui::{
-        self, Frame, Layout, Response, RichText, ScrollArea, Sense, Slider, ViewportBuilder, Widget,
+        self, IconData, Layout, ScrollArea, Sense, Slider, Ui, ViewportBuilder, Visuals, Widget,
+        Window,
     },
-    emath::{lerp, Align2},
+    emath::Align2,
     epaint::{
         tessellator::{Path, PathType},
-        vec2, Color32, FontFamily, FontId, Mesh, Pos2, Rect, Rgba, Rounding, Shape, Stroke, Vec2,
+        vec2, Color32, FontFamily, FontId, Mesh, Pos2, Shadow, Shape, Stroke, Vec2,
     },
-    WindowBuilder,
 };
 
-use rodio::{source::Source, Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, Sink};
 
 use precomputed::CIRCLE;
 mod precomputed;
+mod utils;
+#[cfg(windows)]
+use utils::get_window_size;
+use utils::MonitorSize;
 
 struct Percent {
     percent: i8,
 }
 
 const RAW_AUDIO: &[u8; 368684] = include_bytes!("./assets/completed.wav");
+const NOTIFICATION_DURATION: Duration = Duration::from_secs(5);
 
 impl Percent {
     pub fn new(n: i8) -> Result<Self, String> {
@@ -43,17 +48,12 @@ impl Percent {
 
 struct ProgressCircle<'a> {
     amount: Percent,
-    color: egui::Color32,
     phase: &'a mut PomodoroPhase,
 }
 
 impl<'a> ProgressCircle<'a> {
     pub fn new(p: Percent, phase: &'a mut PomodoroPhase) -> Self {
-        Self {
-            amount: p,
-            color: phase.to_color(),
-            phase,
-        }
+        Self { amount: p, phase }
     }
 
     fn get_points(&self, center: Pos2, radius: f32) -> Vec<Pos2> {
@@ -87,7 +87,7 @@ impl<'a> Widget for ProgressCircle<'a> {
                 .sqrt()
                     <= radius + 7.5
                 {
-                    let mut color = ui.style().visuals.gray_out(self.color);
+                    let mut color = self.phase.to_color(ui);
                     color = color.gamma_multiply(0.5);
                     ui.painter().circle(
                         outer.center(),
@@ -132,7 +132,12 @@ impl<'a> Widget for ProgressCircle<'a> {
         path.add_open_points(&self.get_points(outer.center(), radius));
         // converts it to a mesh
         let mut mesh = Mesh::default();
-        path.stroke(1.0, PathType::Open, Stroke::new(7.5, self.color), &mut mesh);
+        path.stroke(
+            1.0,
+            PathType::Open,
+            Stroke::new(7.5, self.phase.to_color(ui)),
+            &mut mesh,
+        );
         // paints it
         ui.painter().add(Shape::Mesh(mesh));
         let time_left = {
@@ -246,13 +251,15 @@ impl PomodoroPhase {
         }
     }
 
-    pub fn to_color(&self) -> Color32 {
-        if self.is_paused() {
-            return Color32::from_hex("#34eb9f").unwrap();
-        }
-        match self {
+    pub fn to_color(&self, ui: &mut egui::Ui) -> Color32 {
+        let color = match self {
             Self::Work { .. } => Color32::from_hex("#3aeb34").unwrap(),
             Self::Break { .. } => Color32::from_hex("#dceb34").unwrap(),
+        };
+        if self.is_paused() {
+            ui.style().visuals.gray_out(color)
+        } else {
+            color
         }
     }
 
@@ -299,31 +306,57 @@ impl Stats {
     }
 }
 
+struct Notification {
+    time_start: Instant,
+    duration: Duration,
+    text: String,
+}
+
+impl Notification {
+    pub fn new(text: String) -> Self {
+        Self {
+            time_start: Instant::now(),
+            duration: NOTIFICATION_DURATION.clone(),
+            text,
+        }
+    }
+}
+
 struct App {
     work_phase: Duration,
     break_phase: Duration,
     phase: PomodoroPhase,
     stats: Stats,
+    notifications: Vec<Notification>,
+    screen_size: MonitorSize,
 }
 
 impl App {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
         // Restore app state using cc.storage (requires the "persistence" feature).
         // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
         // for e.g. egui::PaintCallback.
+        let size = {
+            let mut size = get_window_size().unwrap_or_default();
+            size.width /= cc.egui_ctx.pixels_per_point();
+            size.height /= cc.egui_ctx.pixels_per_point();
+            size
+        };
         App {
             work_phase: Duration::from_secs(30 * 60),
             break_phase: Duration::from_secs(15 * 60),
             phase: PomodoroPhase::new_work(Duration::from_secs(30 * 60)),
             stats: Stats::default(),
+            notifications: vec![],
+            screen_size: size,
         }
     }
 
     fn check_time(&mut self) {
         if let Some(start) = self.phase.get_start() {
             if start.elapsed() > self.phase.get_duration() {
-                self.next_phase();
+                self.next_phase(false);
             }
         }
     }
@@ -339,11 +372,23 @@ impl App {
         });
     }
 
-    fn next_phase(&mut self) {
+    fn next_phase(&mut self, skipped: bool) {
         Self::play_completed_sound();
         self.phase = match self.phase {
-            PomodoroPhase::Work { .. } => PomodoroPhase::new_break(self.break_phase),
-            PomodoroPhase::Break { .. } => PomodoroPhase::new_work(self.work_phase),
+            PomodoroPhase::Work { .. } => {
+                if !skipped {
+                    self.notifications
+                        .push(Notification::new("Work Done!".to_string()));
+                }
+                PomodoroPhase::new_break(self.break_phase)
+            }
+            PomodoroPhase::Break { .. } => {
+                if !skipped {
+                    self.notifications
+                        .push(Notification::new("Break Done!".to_string()));
+                }
+                PomodoroPhase::new_work(self.work_phase)
+            }
         };
         self.stats.increment();
     }
@@ -352,8 +397,8 @@ impl App {
 impl eframe::App for App {
     // This will get called every time the app updates, or every 5ms, which ever is faster
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.check_time();
         egui::CentralPanel::default().show(ctx, |ui| {
+            self.check_time();
             ui.vertical_centered(|ui| {
                 ui.heading("Pomodoro");
             });
@@ -373,7 +418,7 @@ impl eframe::App for App {
                 ui.label(stats_text);
                 ui.with_layout(Layout::top_down(eframe::emath::Align::Max), |ui| {
                     if ui.button("Skip").clicked() {
-                        self.next_phase();
+                        self.next_phase(true);
                     }
                 })
             });
@@ -394,21 +439,97 @@ impl eframe::App for App {
                 self.break_phase = Duration::from_secs(btime * 60);
             });
         });
+
+        #[cfg(windows)]
+        {
+            let mut remove = vec![];
+            for i in 0..self.notifications.len() {
+                let notification = &self.notifications[i];
+                if notification.duration < notification.time_start.elapsed() {
+                    remove.push(i);
+                    continue;
+                }
+                ctx.show_viewport_immediate(
+                    egui::ViewportId::from_hash_of(
+                        "immediate_viewport".to_owned() + &i.to_string(),
+                    ),
+                    egui::ViewportBuilder::default()
+                        .with_title("Immediate Viewport")
+                        .with_taskbar(false)
+                        .with_decorations(false)
+                        .with_position(Pos2::new(
+                            self.screen_size.width - 210.0,
+                            10.0 + (i as f32 * 50.0),
+                        ))
+                        .with_max_inner_size(vec2(200.0, 50.0))
+                        .with_always_on_top()
+                        .with_resizable(false),
+                    |ctx, _class| {
+                        let frame = egui::Frame::none()
+                            .inner_margin(7.0)
+                            .stroke(Stroke::new(5.0, ctx.style().visuals.faint_bg_color))
+                            .fill(ctx.style().visuals.panel_fill);
+                        egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+                            let (rect, sense) =
+                                ui.allocate_exact_size(ui.available_size(), Sense::click());
+                            ui.painter().text(
+                                rect.left_center(),
+                                Align2::LEFT_CENTER,
+                                &self.notifications.get(i).expect("Should exist").text,
+                                FontId::new(20.0, FontFamily::default()),
+                                Color32::WHITE,
+                            );
+
+                            if sense.clicked() {
+                                remove.push(i);
+                            }
+                        });
+                    },
+                );
+            }
+            for (i, remove) in remove.iter().enumerate() {
+                self.notifications
+                    .remove(remove.saturating_sub(i.saturating_sub(1)));
+            }
+        }
+
         // this is what sets the slowest update speed
         ctx.request_repaint_after(Duration::from_millis(5));
     }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        Color32::TRANSPARENT.to_normalized_gamma_f32()
+    }
 }
 
-fn build_viewport(builder: ViewportBuilder) -> ViewportBuilder {
-    builder
+fn load_icon() -> IconData {
+    let (icon_rgba, icon_width, icon_height) = {
+        let image = image::load_from_memory(include_bytes!("./assets/icon.png"))
+            .expect("Failed to open icon path")
+            .into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+
+    IconData {
+        rgba: icon_rgba,
+        width: icon_width,
+        height: icon_height,
+    }
+}
+
+fn build_viewport() -> ViewportBuilder {
+    ViewportBuilder::default()
         .with_resizable(false)
         .with_max_inner_size(Vec2::new(350.0, 450.0))
+        .with_icon(load_icon())
 }
 
 fn main() {
     let native_options = eframe::NativeOptions {
         centered: true,
-        window_builder: Some(Box::new(build_viewport)),
+        viewport: build_viewport(),
         ..Default::default()
     };
     let _ = eframe::run_native(
