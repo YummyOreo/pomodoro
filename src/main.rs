@@ -2,12 +2,11 @@
 use std::time::Duration;
 
 use eframe::{
-    egui::{self, IconData, ViewportBuilder},
+    egui::{self, ViewportBuilder},
     epaint::{Color32, Vec2},
 };
 
 use notifications::{draw_notification, Notification};
-use rodio::{Decoder, OutputStream, Sink};
 
 mod precomputed;
 mod timer;
@@ -15,7 +14,7 @@ use timer::PomodoroPhase;
 mod ui;
 mod utils;
 use ui::Action;
-use utils::Percent;
+use utils::{play_sound, Percent};
 mod circle_widget;
 mod notifications;
 use circle_widget::ProgressCircle;
@@ -26,7 +25,7 @@ use stats::Stats;
 use utils::get_window_size;
 use utils::MonitorSize;
 
-const RAW_AUDIO: &[u8; 368684] = include_bytes!("./assets/completed.wav");
+const RAW_COMPLETE_SOUND: &[u8; 368684] = include_bytes!("./assets/completed.wav");
 
 struct App {
     work_phase: Duration,
@@ -68,14 +67,7 @@ impl App {
     }
 
     fn play_completed_sound() {
-        std::thread::spawn(|| {
-            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-            let sink = Sink::try_new(&stream_handle).unwrap();
-            let my_slice = std::io::Cursor::new(RAW_AUDIO);
-            let source = Decoder::new(my_slice).unwrap();
-            sink.append(source);
-            sink.sleep_until_end();
-        });
+        play_sound(RAW_COMPLETE_SOUND)
     }
 
     fn next_phase(&mut self, skipped: bool) {
@@ -148,31 +140,14 @@ impl eframe::App for App {
     }
 }
 
-fn load_icon() -> IconData {
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::load_from_memory(include_bytes!("./assets/icon.png"))
-            .expect("Failed to open icon path")
-            .into_rgba8();
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        (rgba, width, height)
-    };
-
-    IconData {
-        rgba: icon_rgba,
-        width: icon_width,
-        height: icon_height,
-    }
-}
-
-fn build_viewport() -> ViewportBuilder {
-    ViewportBuilder::default()
-        .with_resizable(false)
-        .with_max_inner_size(Vec2::new(350.0, 450.0))
-        .with_icon(load_icon())
-}
-
 fn main() {
+    fn build_viewport() -> ViewportBuilder {
+        ViewportBuilder::default()
+            .with_resizable(false)
+            .with_max_inner_size(Vec2::new(350.0, 450.0))
+            .with_icon(utils::load_icon())
+    }
+
     let native_options = eframe::NativeOptions {
         centered: true,
         viewport: build_viewport(),
