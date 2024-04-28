@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use eframe::{
     egui::{self, ViewportBuilder},
-    epaint::{Color32, Vec2},
+    epaint::{Color32, Vec2}, Theme,
 };
 
 use notifications::{draw_notification, Notification};
@@ -112,7 +112,7 @@ impl eframe::App for App {
             let percent = self
                 .phase
                 .to_percent()
-                .unwrap_or(Percent::new(100).expect("Should be valid"));
+                .unwrap_or(Percent::new(100.0).expect("Should be valid"));
             ui.add(ProgressCircle::new(percent, &mut self.phase));
 
             if let Action::NextPhase = ui::draw_stats_bar(ui, &self.stats) {
@@ -151,6 +151,7 @@ fn main() {
     let native_options = eframe::NativeOptions {
         centered: true,
         viewport: build_viewport(),
+        default_theme: Theme::Dark,
         ..Default::default()
     };
     let _ = eframe::run_native(

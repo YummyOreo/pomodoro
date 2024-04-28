@@ -50,14 +50,14 @@ pub fn load_icon() -> IconData {
 }
 
 pub struct Percent {
-    percent: i8,
+    percent: f32,
 }
 
 impl Percent {
-    pub fn new(n: i8) -> Result<Self, String> {
+    pub fn new(n: f32) -> Result<Self, String> {
         // this percentage cannot go to 0 because then the indexing will break in the get_points
         // method
-        if !(0..=100).contains(&n) {
+        if !(0.0..=100.0).contains(&n) {
             return Err("Out of bounds".to_owned());
         }
         Ok(Self { percent: n })

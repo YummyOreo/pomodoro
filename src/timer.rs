@@ -1,6 +1,6 @@
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
-use eframe::{epaint::Color32, egui};
+use eframe::{egui, epaint::Color32};
 
 use crate::utils::Percent;
 
@@ -110,9 +110,10 @@ impl PomodoroPhase {
         if let Some(time_elapsed) = self.time_elapsed() {
             return Some(
                 Percent::new(
-                    100 - ((time_elapsed.as_secs() as f64 / self.get_duration().as_secs() as f64)
-                        * 100.0)
-                        .clamp(0.0, i8::MAX as f64) as i8,
+                    100.0
+                        - ((time_elapsed.as_secs() as f64 / self.get_duration().as_secs() as f64)
+                            * 100.0)
+                            .clamp(0.0, 100.0) as f32,
                 )
                 .expect("Should be valid"),
             );
