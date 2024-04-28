@@ -2642,7 +2642,6 @@ dependencies = [
 name = "pomodoro"
 version = "0.1.0"
 dependencies = [
- "cfg-if",
  "directories",
  "eframe",
  "image 0.25.1",
