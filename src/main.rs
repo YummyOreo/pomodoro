@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::time::Duration;
 
+use config::ConfigManager;
 use eframe::{
     egui::{self, ViewportBuilder},
     epaint::{Color32, Vec2},
@@ -21,6 +22,7 @@ mod notifications;
 use circle_widget::ProgressCircle;
 mod stats;
 use stats::Stats;
+mod config;
 
 #[cfg(windows)]
 use utils::get_window_size;
@@ -29,12 +31,11 @@ use utils::MonitorSize;
 const RAW_COMPLETE_SOUND: &[u8; 368684] = include_bytes!("./assets/completed.wav");
 
 struct App {
-    work_phase: Duration,
-    break_phase: Duration,
     phase: PomodoroPhase,
     stats: Stats,
     notifications: Vec<Notification>,
     screen_size: MonitorSize,
+    config_manager: ConfigManager,
 }
 
 impl App {
@@ -49,13 +50,14 @@ impl App {
             size.height /= cc.egui_ctx.pixels_per_point();
             size
         };
+        let mut config_manager = ConfigManager::new();
+        config_manager.load();
         App {
-            work_phase: Duration::from_secs(30 * 60),
-            break_phase: Duration::from_secs(15 * 60),
-            phase: PomodoroPhase::new_work(Duration::from_secs(30 * 60)),
+            phase: PomodoroPhase::new_work(config_manager.get_work_time()),
             stats: Stats::default(),
             notifications: vec![],
             screen_size: size,
+            config_manager,
         }
     }
 
@@ -79,14 +81,14 @@ impl App {
                     self.notifications
                         .push(Notification::new("Work Done!".to_string()));
                 }
-                PomodoroPhase::new_break(self.break_phase)
+                PomodoroPhase::new_break(self.config_manager.get_break_time())
             }
             PomodoroPhase::Break { .. } => {
                 if !skipped {
                     self.notifications
                         .push(Notification::new("Break Done!".to_string()));
                 }
-                PomodoroPhase::new_work(self.work_phase)
+                PomodoroPhase::new_work(self.config_manager.get_work_time())
             }
         };
         self.stats.increment();
@@ -116,17 +118,25 @@ impl eframe::App for App {
                 .unwrap_or(Percent::new(100.0).expect("Should be valid"));
             ui.add(ProgressCircle::new(percent, &mut self.phase));
 
-            if let Action::NextPhase = ui::draw_stats_bar(ui, &self.stats) {
+            let status = *self.config_manager.status.lock().unwrap();
+            if let Action::NextPhase = ui::draw_stats_bar(ui, &self.stats, status) {
                 self.next_phase(true);
             }
 
-            if let Action::ModifyPhaseConfig {
-                work_phase,
-                break_phase,
-            } = ui::draw_config(ui, &self.work_phase, &self.break_phase)
-            {
-                self.work_phase = work_phase;
-                self.break_phase = break_phase;
+            let config_actions = ui::draw_config(
+                ui,
+                &self.config_manager.get_work_time(),
+                &self.config_manager.get_break_time(),
+            );
+            for action in &config_actions {
+                match action {
+                    Action::ModifyWorkPhaseConfig(d) => self.config_manager.set_work_time(*d),
+                    Action::ModifyBreakPhaseConfig(d) => self.config_manager.set_break_time(*d),
+                    _ => {}
+                }
+            }
+            if !config_actions.is_empty() {
+                self.config_manager.save();
             }
         });
 

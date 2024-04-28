@@ -34,36 +34,29 @@ impl<'a> ProgressCircle<'a> {
         path
     }
 
-    fn sense_hover(&self, ui: &mut egui::Ui, response: &Response, radius: f32, outer: Rect) {
-        if response.hovered() {
-            if let Some(hover_pos) = response.hover_pos() {
-                let center = outer.center();
-                if ((center.x - hover_pos.x).abs().powf(2.0)
-                    + (center.y - hover_pos.y).abs().powf(2.0))
+    fn is_in_circle(&self, response: &Response, radius: f32, outer: Rect) -> bool {
+        if let Some(hover_pos) = response.hover_pos() {
+            let center = outer.center();
+            ((center.x - hover_pos.x).abs().powf(2.0) + (center.y - hover_pos.y).abs().powf(2.0))
                 .sqrt()
-                    <= radius + 7.5
-                {
-                    let mut color = self.phase.to_color(ui);
-                    color = color.gamma_multiply(0.5);
-                    ui.painter()
-                        .circle(outer.center(), radius, color, Stroke::NONE);
-                }
-            }
+                <= radius + 7.5
+        } else {
+            false
+        }
+    }
+
+    fn sense_hover(&self, ui: &mut egui::Ui, response: &Response, radius: f32, outer: Rect) {
+        if response.hovered() && self.is_in_circle(response, radius, outer) {
+            let mut color = self.phase.to_color(ui);
+            color = color.gamma_multiply(0.5);
+            ui.painter()
+                .circle(outer.center(), radius, color, Stroke::NONE);
         }
     }
 
     fn sense_click(&self, response: &Response, radius: f32, outer: Rect) -> Action {
-        if response.clicked() {
-            if let Some(hover_pos) = response.hover_pos() {
-                let center = outer.center();
-                if ((center.x - hover_pos.x).abs().powf(2.0)
-                    + (center.y - hover_pos.y).abs().powf(2.0))
-                .sqrt()
-                    <= radius + 7.5
-                {
-                    return Action::TogglePhase;
-                }
-            }
+        if response.clicked() & self.is_in_circle(response, radius, outer) {
+            return Action::TogglePhase;
         }
         Action::None
     }
