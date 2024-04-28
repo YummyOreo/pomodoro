@@ -1,9 +1,10 @@
-// #![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::time::Duration;
 
 use eframe::{
     egui::{self, ViewportBuilder},
-    epaint::{Color32, Vec2}, Theme,
+    epaint::{Color32, Vec2},
+    Theme,
 };
 
 use notifications::{draw_notification, Notification};
