@@ -108,14 +108,7 @@ impl<'a> Widget for ProgressCircle<'a> {
                 .sqrt()
                     <= radius + 7.5
                 {
-                    match self.phase.get_start() {
-                        Some(_) => {
-                            self.phase.pause();
-                        }
-                        None => {
-                            self.phase.start();
-                        }
-                    }
+                    self.phase.toggle();
                 }
             }
         }
@@ -248,6 +241,14 @@ impl PomodoroPhase {
     pub fn is_paused(&self) -> bool {
         match self {
             Self::Break { paused, .. } | Self::Work { paused, .. } => paused.is_some(),
+        }
+    }
+
+    pub fn toggle(&mut self) {
+        if self.is_paused() {
+            self.start();
+        } else {
+            self.pause();
         }
     }
 
@@ -399,6 +400,12 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.check_time();
+
+            ui.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                    self.phase.toggle();
+                }
+            });
             ui.vertical_centered(|ui| {
                 ui.heading("Pomodoro");
             });
