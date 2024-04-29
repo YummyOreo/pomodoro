@@ -22,16 +22,15 @@ impl<'a> ProgressCircle<'a> {
     }
 
     fn get_points(&self, center: Pos2, radius: f32) -> Vec<Pos2> {
-        // uses the precomputed values from the egui famework to make a partial circle
-        let mut path = vec![];
-        let offset = self
-            .amount
-            // maps the percentage to a value
-            .map_to_value(CIRCLE.len() - 1);
-        // gets all the points
-        let quadrant_vertices: &[Vec2] = &CIRCLE[0..=offset];
-        path.extend(quadrant_vertices.iter().map(|&n| center + radius * n));
-        path
+        let single: f32 = CIRCLE.len() as f32 / 360.0;
+        let angle = 360.0 - self.amount.map_to_value(360.0);
+
+        CIRCLE
+            .iter()
+            .enumerate()
+            .skip_while(|(i, _)| *i as f64 / single as f64 <= angle)
+            .map(|(_, &pos)| center + (radius * pos))
+            .collect()
     }
 
     fn is_in_circle(&self, response: &Response, radius: f32, outer: Rect) -> bool {
@@ -63,18 +62,21 @@ impl<'a> ProgressCircle<'a> {
 
     fn paint_progress_circle(&self, ui: &mut egui::Ui, radius: f32, outer: Rect) {
         let mut path = Path::default();
-        // adds the points of the progress circle in the middle with the radius of ''
-        path.add_open_points(&self.get_points(outer.center(), radius));
-        // converts it to a mesh
-        let mut mesh = Mesh::default();
-        path.stroke(
-            1.0,
-            PathType::Open,
-            Stroke::new(7.5, self.phase.to_color(ui)),
-            &mut mesh,
-        );
-        // paints it
-        ui.painter().add(Shape::Mesh(mesh));
+        let points = self.get_points(outer.center(), radius);
+        if points.len() > 2 {
+            // adds the points of the progress circle in the middle with the radius of ''
+            path.add_open_points(&self.get_points(outer.center(), radius));
+            // converts it to a mesh
+            let mut mesh = Mesh::default();
+            path.stroke(
+                1.0,
+                PathType::Open,
+                Stroke::new(7.5, self.phase.to_color(ui)),
+                &mut mesh,
+            );
+            // paints it
+            ui.painter().add(Shape::Mesh(mesh));
+        }
     }
 
     fn paint_info(&self, ui: &mut egui::Ui, outer: Rect) {

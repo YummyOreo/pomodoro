@@ -111,7 +111,7 @@ impl PomodoroPhase {
             return Some(
                 Percent::new(
                     100.0
-                        - ((time_elapsed.as_secs() as f64 / self.get_duration().as_secs() as f64)
+                        - ((time_elapsed.as_nanos() as f64 / self.get_duration().as_nanos() as f64)
                             * 100.0)
                             .clamp(0.0, 100.0) as f32,
                 )

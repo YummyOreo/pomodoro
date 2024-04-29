@@ -63,9 +63,10 @@ impl Percent {
         Ok(Self { percent: n })
     }
 
-    pub fn map_to_value(&self, value: usize) -> usize {
-        let x: usize = ((self.percent as f64 / 100.0) * (value as f64)) as usize;
+    pub fn map_to_value<T: Into<f64> + From<f64>>(&self, value: T) -> T {
+        let value: f64 = value.into();
+        let x = (self.percent as f64 / 100.0) * (value);
         // clamps it because it could go over the value
-        x.clamp(0, value)
+        x.clamp(0.0, value).into()
     }
 }

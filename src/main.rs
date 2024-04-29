@@ -51,7 +51,7 @@ impl App {
             size
         };
         let mut config_manager = ConfigManager::new();
-        config_manager.load();
+        config_manager.load_blocking();
         App {
             phase: PomodoroPhase::new_work(config_manager.get_work_time()),
             stats: Stats::default(),

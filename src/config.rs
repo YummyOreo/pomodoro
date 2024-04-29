@@ -15,6 +15,41 @@ pub enum Status {
     None,
 }
 
+fn load(status: Arc<Mutex<Status>>, config: Arc<Mutex<Config>>, mut config_file: PathBuf) {
+    println!("Loading");
+    *status.lock().unwrap() = Status::Loading;
+    config_file.push("Pomodoro/config.toml");
+    if config_file.exists() {
+        if let Ok(data) = std::fs::read_to_string(config_file) {
+            *config.lock().unwrap() = toml::from_str(&data).unwrap();
+        }
+    }
+    *status.lock().unwrap() = Status::Loaded;
+    println!("Loaded");
+}
+
+fn save(status: Arc<Mutex<Status>>, config: Arc<Mutex<Config>>, mut storage_dir: PathBuf) {
+    println!("Saving");
+    while !matches!(
+        *status.lock().unwrap(),
+        Status::Saved | Status::None | Status::Loaded
+    ) {
+        std::thread::sleep(Duration::from_nanos(500));
+    }
+    *status.lock().unwrap() = Status::Saving;
+    storage_dir.push("Pomodoro");
+    if !storage_dir.exists() {
+        let _ = std::fs::create_dir_all(&storage_dir);
+    }
+    storage_dir.push("config.toml");
+    let _ = std::fs::write(
+        storage_dir,
+        toml::to_string(&*config.lock().unwrap()).unwrap(),
+    );
+    *status.lock().unwrap() = Status::Saved;
+    println!("Saved");
+}
+
 pub struct ConfigManager {
     pub status: Arc<Mutex<Status>>,
     pub config: Arc<Mutex<Config>>,
@@ -33,48 +68,29 @@ impl ConfigManager {
     }
 
     pub fn load(&mut self) {
-        let (status, config, mut config_file) = (
+        let (status, config, config_file) = (
             self.status.clone(),
             self.config.clone(),
             Self::get_save_dir().unwrap(),
         );
         std::thread::spawn(move || {
-            println!("Loading");
-            *status.lock().unwrap() = Status::Loading;
-            config_file.push("Pomodoro/config.toml");
-            if config_file.exists() {
-                if let Ok(data) = std::fs::read_to_string(config_file) {
-                    *config.lock().unwrap() = toml::from_str(&data).unwrap();
-                }
-            }
-            *status.lock().unwrap() = Status::Loaded;
-            println!("Loaded");
+            load(status, config, config_file);
         });
     }
 
+    pub fn load_blocking(&mut self) {
+        let config_file = Self::get_save_dir().unwrap();
+        load(self.status.clone(), self.config.clone(), config_file);
+    }
+
     pub fn save(&mut self) {
-        let (status, config, mut storage_dir) = (
+        let (status, config, storage_dir) = (
             self.status.clone(),
             self.config.clone(),
             Self::get_save_dir().unwrap(),
         );
         std::thread::spawn(move || {
-            println!("Saving");
-            while !matches!(*status.lock().unwrap(), Status::Saved | Status::None | Status::Loaded) {
-                std::thread::sleep(Duration::from_nanos(500));
-            }
-            *status.lock().unwrap() = Status::Saving;
-            storage_dir.push("Pomodoro");
-            if !storage_dir.exists() {
-                let _ = std::fs::create_dir_all(&storage_dir);
-            }
-            storage_dir.push("config.toml");
-            let _ = std::fs::write(
-                storage_dir,
-                toml::to_string(&*config.lock().unwrap()).unwrap(),
-            );
-            *status.lock().unwrap() = Status::Saved;
-            println!("Saved");
+            save(status, config, storage_dir);
         });
     }
 
